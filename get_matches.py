@@ -1,13 +1,36 @@
 import argparse
+import json
+import os
 
 import opendota
-import time
+import time, multiprocessing
 import sqlite3
 from tqdm import tqdm
+from urllib.parse import urlsplit, urlunsplit
+import requests
+from opendota import OpenDota
+
+
+def call_get_match(client, match_id, output_dict):
+    output_dict["match"] = client.get_match(str(match_id))
+
+
+def get_match_with_timeout(client, match_id, timeout=5):
+    with multiprocessing.Manager() as manager:
+        result_dict = manager.dict()
+        p = multiprocessing.Process(target=call_get_match, args=(client, match_id, result_dict))
+        p.start()
+        p.join(timeout)
+        if p.is_alive():
+            p.terminate()
+            p.join()
+            return None  # timed out
+        return result_dict.get("match", None)
+
 
 
 def main(args):
-    client = opendota.OpenDota(api_key=args.key)
+    client = OpenDota(api_key=args.key)
 
     conn = sqlite3.connect('dota_matches.db')
     cursor = conn.cursor()
@@ -28,10 +51,10 @@ def main(args):
     current_retries_cnt = 0
     try:
         current_min_matchid = args.match_id
-        for _ in (pbar := tqdm(range(650))):
+        for _ in (pbar := tqdm(range(1000))):
             match_infos = client.get_pro_matches(match_id=current_min_matchid)
             pbar.set_description(f"Min match id: {current_min_matchid}")
-            time.sleep(0.2)
+            time.sleep(0.05)
             for mi in (lower_pbar := tqdm(match_infos, leave=False)):
                 id = mi['match_id']
                 winner = 'radiant' if mi['radiant_win'] else 'dire'
@@ -42,7 +65,13 @@ def main(args):
                 match = None
                 for _ in range(5):
                     current_retries_cnt += 1
-                    match = client.get_match(str(id))
+                    
+                    try:
+                        match = get_match_with_timeout(client, id, timeout=5)
+                    except requests.exceptions.Timeout:
+                        match = None
+                        break
+
                     if match is not None:
                         break
                     time.sleep(0.5) 
@@ -71,7 +100,7 @@ def main(args):
                     ''', (choice, hero_id, team, order, id, winner))
                     conn.commit()
                     
-                time.sleep(0.1)
+                time.sleep(0.05)
             current_min_matchid = mi["match_id"]
 
         conn.close()
