@@ -48,6 +48,20 @@ class DraftStateEvaluator:
         """
         raise NotImplementedError("Implement evaluate!")
     
+    def predict_winner(self, radiant_heroes: list[int], dire_heroes: list[int]):
+        """
+        Binary winner prediction given the evalute function
+
+        :param radiant_heroes: a list of sequential hero ids for the radiant heroes
+        :param dire_heroes: a list of sequential hero ids for the dire heroes
+        :return: A string representing who will win, radiant or dire
+        """
+        score = self.evaluate(radiant_heroes, dire_heroes)
+        if score >= 0.0:
+            return 'radiant'
+        else:
+            return 'dire'
+    
 
 class NaiveHeroWinrateDraftStateEvaluator(DraftStateEvaluator):
     """
